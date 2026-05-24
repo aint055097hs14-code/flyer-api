@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>售屋傳單解析</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#e0e0e0;min-height:100vh;padding:24px}
+.wrap{max-width:800px;margin:0 auto}
+h1{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px}
+.drop-zone{border:1.5px dashed #2a2a2a;border-radius:12px;padding:32px;text-align:center;cursor:pointer;transition:border-color .2s;background:#141414}
+.drop-zone:hover,.drop-zone.drag{border-color:#444}
+.drop-zone.has-img{padding:10px}
+.drop-zone img{max-height:200px;max-width:100%;border-radius:8px;object-fit:contain}
+.upload-icon{font-size:28px;opacity:.3;margin-bottom:8px}
+.upload-label{font-size:13px;color:#666}
+.btn-row{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-primary:hover:not(:disabled){background:#1d4ed8}
+.btn-ghost{background:#1e1e1e;color:#888;border:1px solid #2a2a2a}
+.btn-ghost:hover:not(:disabled){background:#252525}
+.status{font-size:12px;color:#555}
+.status.err{color:#f87171}.status.ok{color:#4ade80}
+.confirm-bar{background:#111827;border:1px solid #1e3a5f;border-radius:10px;padding:12px 16px;margin-top:12px;display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.confirm-bar.show{display:flex}
+.confirm-text{font-size:12px;color:#64748b;line-height:1.5}
+.confirm-text strong{color:#60a5fa;font-size:13px}
+.results{margin-top:20px;display:none}
+.results.show{display:block}
+.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid #1e1e1e;padding-bottom:0}
+.tab{padding:7px 14px;font-size:12px;cursor:pointer;border-radius:6px 6px 0 0;color:#555;border:none;background:none}
+.tab.active{color:#e2e8f0;background:#1a1a1a}
+.panel{display:none}.panel.active{display:block}
+.card{background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:14px;margin-bottom:10px}
+.card-title{font-size:10px;font-weight:600;color:#444;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+/* params */
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:7px}
+.pc{background:#1a1a1a;border-radius:7px;padding:9px 11px}
+.pc .k{font-size:10px;color:#444;margin-bottom:2px}
+.pc .v{font-size:19px;font-weight:600;color:#e2e8f0;line-height:1}
+.pc .s{font-size:10px;color:#333;margin-top:2px}
+/* facade */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:7px}
+.fp{background:#1a1a1a;border-radius:7px;padding:9px 11px}
+.fp .k{font-size:10px;color:#444;margin-bottom:6px}
+.fp .slots{display:flex;gap:6px}
+.slot{flex:1;text-align:center}
+.slot .sl{font-size:9px;color:#333;margin-bottom:2px}
+.slot .sv{font-size:17px;font-weight:600;padding:3px;border-radius:5px}
+.slot-t .sv{background:#14532d18;color:#4ade80}
+.slot-f .sv{background:#4c1d1d18;color:#f87171}
+.slot-c .sv{background:#1e3a5f18;color:#60a5fa}
+/* nlp */
+.mrow{display:flex;gap:8px;margin-bottom:7px;font-size:12px;align-items:flex-start}
+.mrow:last-child{margin-bottom:0}
+.mk{color:#444;width:72px;flex-shrink:0;margin-top:1px}
+.mv{color:#94a3b8;line-height:1.5}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.bl{background:#4c1d1d22;color:#f87171}
+.bm{background:#451a0322;color:#fb923c}
+.bh{background:#14532d22;color:#4ade80}
+.bar{height:3px;background:#1e1e1e;border-radius:2px;margin-top:5px;overflow:hidden}
+.bf{height:100%;border-radius:2px}
+/* record table */
+.rtable{width:100%;border-collapse:collapse;font-size:12px}
+.rtable td{padding:6px 8px;border-bottom:1px solid #1a1a1a;vertical-align:top}
+.rtable td:first-child{color:#444;width:110px;white-space:nowrap}
+.rtable td:last-child{color:#94a3b8;word-break:break-all}
+/* json */
+.jbox{background:#0a0a0a;border-radius:8px;padding:12px;font-family:monospace;font-size:11px;color:#444;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow-y:auto}
+.copy-btn{font-size:11px;color:#333;cursor:pointer;float:right}
+.copy-btn:hover{color:#666}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏠 售屋傳單解析</h1>
+
+  <div id="dz" class="drop-zone" onclick="document.getElementById('fi').click()"
+    ondragover="event.preventDefault();this.classList.add('drag')"
+    ondragleave="this.classList.remove('drag')"
+    ondrop="onDrop(event)">
+    <div class="upload-icon">📄</div>
+    <div class="upload-label">點擊或拖放傳單圖片（JPG / PNG）</div>
+  </div>
+  <input type="file" id="fi" accept="image/*" style="display:none" onchange="onFile(this.files[0])">
+
+  <div class="btn-row">
+    <button class="btn btn-ghost" onclick="document.getElementById('fi').click()">更換圖片</button>
+    <span id="st" class="status"></span>
+  </div>
+
+  <div id="cb" class="confirm-bar">
+    <div class="confirm-text"><strong>確認送出分析？</strong><br>每次約消耗 $0.003 USD</div>
+    <button class="btn btn-primary" id="ba" onclick="run()">✦ 開始分析</button>
+  </div>
+
+  <div id="res" class="results">
+    <div class="tabs">
+      <button class="tab active" onclick="tab('params',this)">建築參數</button>
+      <button class="tab" onclick="tab('facade',this)">立面選擇</button>
+      <button class="tab" onclick="tab('nlp',this)">NLP 分析</button>
+      <button class="tab" onclick="tab('record',this)">傳單記錄</button>
+      <button class="tab" onclick="tab('json',this)">JSON</button>
+    </div>
+
+    <div id="p-params" class="panel active">
+      <div class="card"><div class="card-title">幾何參數</div><div class="pgrid" id="pgrid"></div></div>
+    </div>
+    <div id="p-facade" class="panel">
+      <div class="card"><div class="card-title">立面模型選擇（每次分析隨機抽取）</div><div class="fgrid" id="fgrid"></div></div>
+    </div>
+    <div id="p-nlp" class="panel">
+      <div class="card"><div class="card-title">NLP 分析結果</div><div id="nlp"></div></div>
+    </div>
+    <div id="p-record" class="panel">
+      <div class="card"><div class="card-title">傳單原始資料記錄</div><table class="rtable" id="rtable"></table></div>
+    </div>
+    <div id="p-json" class="panel">
+      <div class="card">
+        <div class="card-title">完整 JSON <span class="copy-btn" onclick="copyJ()">複製</span></div>
+        <div class="jbox" id="jbox"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let b64=null, last=null;
+
+function onDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('drag');onFile(e.dataTransfer.files[0]);}
+function onFile(f){
+  if(!f)return;
+  const r=new FileReader();
+  r.onload=e=>{
+    b64=e.target.result.split(',')[1];
+    const dz=document.getElementById('dz');
+    dz.classList.add('has-img');
+    dz.innerHTML=`<img src="${e.target.result}" alt="傳單">`;
+    document.getElementById('cb').classList.add('show');
+    document.getElementById('res').classList.remove('show');
+    document.getElementById('st').textContent='';
+  };
+  r.readAsDataURL(f);
+}
+
+async function run(){
+  if(!b64)return;
+  const btn=document.getElementById('ba'),st=document.getElementById('st');
+  btn.disabled=true;btn.textContent='分析中...';
+  st.className='status';st.textContent='';
+  try{
+    const r=await fetch('/parse/base64',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:b64,media_type:'image/jpeg'})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'伺服器錯誤');
+    last=d;render(d);
+    document.getElementById('res').classList.add('show');
+    document.getElementById('cb').classList.remove('show');
+    st.className='status ok';st.textContent='✓ 分析完成';
+  }catch(e){st.className='status err';st.textContent='錯誤：'+e.message;}
+  btn.disabled=false;btn.textContent='✦ 重新分析';
+  document.getElementById('cb').classList.add('show');
+}
+
+function render(d){
+  const p=d.params, m=d.meta, f=d.facade_selection, rec=d.record;
+
+  // params
+  const pItems=[
+    {k:'寬 width',    v:p.width,            s:areaL(rec.area_ping)},
+    {k:'深 depth',    v:p.depth,            s:''},
+    {k:'高 height',   v:p.height,           s:priceL(rec.price_wan)},
+    {k:'上層 upper',  v:p.upper_floors,     s:rec.layout||'格局未知'},
+    {k:'環狀橫 rings H',v:p.rings_frequency_h,s:rec.has_elevator===true?'有電梯':rec.has_elevator===false?'無電梯':'未標示'},
+    {k:'環狀直 rings V',v:p.rings_frequency_v,s:''},
+    {k:'間距 gap',    v:p.gap_frequency,    s:rec.has_parking===true?'有車位':rec.has_parking===false?'無車位':'未標示'},
+  ];
+  document.getElementById('pgrid').innerHTML=pItems.map(c=>`<div class="pc"><div class="k">${c.k}</div><div class="v">${c.v}</div><div class="s">${c.s}</div></div>`).join('');
+
+  // facade
+  const pnames={middle:'中間層',ring:'環狀層',highfloor:'高樓層',ground_floor:'一樓',rooftop:'屋頂'};
+  document.getElementById('fgrid').innerHTML=Object.entries(f).map(([k,v])=>`
+    <div class="fp"><div class="k">${pnames[k]||k}</div>
+    <div class="slots">
+      <div class="slot slot-t"><div class="sl">true</div><div class="sv">${v.true}</div></div>
+      <div class="slot slot-f"><div class="sl">false</div><div class="sv">${v.false}</div></div>
+      <div class="slot slot-c"><div class="sl">corner</div><div class="sv">${v.corner}</div></div>
+    </div></div>`).join('');
+
+  // nlp
+  const sc=Math.round((m.sentiment_score||0)*100);
+  const cf=m.cluster_confidence||0;
+  const bc=m.sentiment_tier==='high'?'bh':m.sentiment_tier==='mid'?'bm':'bl';
+  const bc2=cf>=70?'#4ade80':cf>=40?'#fb923c':'#f87171';
+  document.getElementById('nlp').innerHTML=`
+    <div class="mrow"><span class="mk">情感分數</span><span class="mv"><span class="badge ${bc}">${m.sentiment_tier_label} ${sc}%</span><div class="bar"><div class="bf" style="width:${sc}%;background:${bc2}"></div></div></span></div>
+    <div class="mrow"><span class="mk">原因</span><span class="mv">${m.sentiment_reason||'—'}</span></div>
+    <div class="mrow"><span class="mk">語意導向</span><span class="mv"><strong style="color:#60a5fa">${m.primary_cluster||'—'}</strong> <span style="font-size:11px;color:#444">信心 ${cf}%</span><div class="bar"><div class="bf" style="width:${cf}%;background:${bc2}"></div></div></span></div>
+    <div class="mrow"><span class="mk">導向原因</span><span class="mv">${m.cluster_reason||'—'}</span></div>`;
+
+  // record
+  const labels={title:'建案標題',address:'地址',phone:'電話',area_ping:'坪數',land_ping:'土地坪數',
+    floor_count:'樓層數',price_wan:'售價（萬）',layout:'格局',has_elevator:'有電梯',has_parking:'有車位',
+    property_type:'物件類型',agent:'房仲',surrounding_desc:'周邊環境',ad_slogan:'廣告標語',
+    material_desc:'建材',condition_desc:'屋況',color:'傳單顏色',notes:'備註'};
+  document.getElementById('rtable').innerHTML=Object.entries(labels).map(([k,l])=>{
+    let v=rec[k];
+    if(v===null||v===undefined)v='—';
+    if(typeof v==='boolean')v=v?'是':'否';
+    return `<tr><td>${l}</td><td>${v}</td></tr>`;
+  }).join('');
+
+  document.getElementById('jbox').textContent=JSON.stringify(d,null,2);
+}
+
+function areaL(v){if(!v)return'坪數未知';return v<25?`${v}坪→小`:v<=50?`${v}坪→中`:`${v}坪→大`;}
+function priceL(v){if(!v)return'售價未知';return v<1000?`${v}萬→低`:v<=2000?`${v}萬→中`:`${v}萬→高`;}
+
+function tab(id,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('p-'+id).classList.add('active');
+}
+function copyJ(){
+  if(!last)return;
+  navigator.clipboard.writeText(JSON.stringify(last,null,2)).then(()=>{document.getElementById('st').textContent='✓ 已複製';});
+}
+</script>
+</body>
+</html>

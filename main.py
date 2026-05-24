@@ -126,6 +126,7 @@ def build_response(raw, seed: int):
     tier    = resolve_tier(score)
     return {
         "seed": seed,
+        "raw": raw,
         "record": {k: raw.get(k) for k in ["title","address","phone","area_ping","land_ping",
             "floor_count","price_wan","layout","has_elevator","has_parking","property_type",
             "agent","surrounding_desc","ad_slogan","material_desc","condition_desc","color","notes"]},

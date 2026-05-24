@@ -203,8 +203,13 @@ async function applySeed(){
       body:JSON.stringify({raw:lastRaw, seed:s})});
     const d=await r.json();
     if(!r.ok)throw new Error(d.detail||'錯誤');
-    last=d;
+    last=d; lastRaw=d.raw;
     render(d);
+    // 套用後自動跳到立面選擇頁籤
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.tab')[1].classList.add('active');
+    document.getElementById('p-facade').classList.add('active');
     st.className='status ok';st.textContent=`✓ Seed ${s} 套用完成`;
   }catch(e){st.className='status err';st.textContent='錯誤：'+e.message;}
 }

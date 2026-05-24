@@ -221,7 +221,7 @@ async def parse_flyer(file: UploadFile = File(...)):
 
     # 呼叫 Claude Vision
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=1000,
         messages=[{
             "role": "user",
@@ -279,7 +279,7 @@ async def parse_flyer_base64(payload: dict):
         raise HTTPException(400, "缺少 image 欄位")
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=1000,
         messages=[{
             "role": "user",

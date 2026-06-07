@@ -119,6 +119,7 @@ h1{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px}
       <button class="tab" onclick="tab('facade',this)">立面選擇</button>
       <button class="tab" onclick="tab('nlp',this)">NLP 分析</button>
       <button class="tab" onclick="tab('record',this)">傳單記錄</button>
+      <button class="tab" onclick="tab('interp',this)">建築詮釋</button>
       <button class="tab" onclick="tab('json',this)">JSON</button>
     </div>
     <div id="p-params" class="panel active">
@@ -132,6 +133,12 @@ h1{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px}
     </div>
     <div id="p-record" class="panel">
       <div class="card"><div class="card-title">傳單原始資料記錄</div><table class="rtable" id="rtable"></table></div>
+    </div>
+    <div id="p-interp" class="panel">
+      <div class="card">
+        <div class="card-title">建築詮釋</div>
+        <div id="interp-text" style="font-size:13px;color:#94a3b8;line-height:1.8;white-space:pre-wrap"></div>
+      </div>
     </div>
     <div id="p-json" class="panel">
       <div class="card">
@@ -262,6 +269,7 @@ function render(d){
   }
 
   document.getElementById('jbox').textContent=JSON.stringify(d,null,2);
+  if(d.interpretation) document.getElementById('interp-text').textContent=d.interpretation;
 }
 
 function areaL(v){if(!v)return'坪數未知';return v<25?`${v}坪→小`:v<=50?`${v}坪→中`:`${v}坪→大`;}

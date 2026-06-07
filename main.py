@@ -11,6 +11,77 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
+# ── 模型外觀描述庫 ────────────────────────────────────────────
+PART_DESC = {
+    0:  {"label":"磚紅鐵窗老公寓",      "feel":"老舊居住痕跡濃厚，時代感的住宅立面"},
+    1:  {"label":"深磚商業招牌牆",      "feel":"街道商業氣息強烈，混合居住與商業功能"},
+    2:  {"label":"水泥素牆小鐵窗",      "feel":"極度老化低調壓抑，接近廢棄邊緣的存在感"},
+    3:  {"label":"暗磚老化鐵捲門",      "feel":"嚴重風化，透露出被遺忘與待修繕的滄桑"},
+    4:  {"label":"白格窗磁磚雨遮",      "feel":"老式住宅的日常生活感，帶有植物與生活痕跡"},
+    5:  {"label":"白窗磚牆商住複合",    "feel":"商業與住宅混用，街道生活機能感強"},
+    6:  {"label":"深灰素面倉庫牆",      "feel":"工業冷調，極簡封閉，拒絕外部視線"},
+    7:  {"label":"磚底騎樓柱廊",        "feel":"台灣街屋底層原型，承載公共通道與私人邊界"},
+    8:  {"label":"白牆弧拱日治遺風",    "feel":"日治時代建築語彙，帶有殖民地現代性的歷史感"},
+    9:  {"label":"淡藍波浪板違建",      "feel":"非正式加建，臨時性與生存策略的空間表達"},
+    10: {"label":"白灰格窗素面住宅",    "feel":"無裝飾的日常住宅，低調融入城市背景"},
+    11: {"label":"藍鐵皮頂加結構",      "feel":"頂層非法加建，城市高密度生存的即興建築"},
+    12: {"label":"綠鐵皮陽台頂層",      "feel":"簡易加建的生活空間，自力更生的居住策略"},
+    13: {"label":"紅磚弧拱巴洛克屋頂",  "feel":"南歐或日治巴洛克裝飾語彙，強調歷史與身份地位"},
+    14: {"label":"粉磚透天住宅一樓",    "feel":"典型台灣透天厝，家族居住記憶與土地所有感"},
+    15: {"label":"板岩藍門騎樓底層",    "feel":"混搭材質的商業底層，呈現台北街道的拼貼美學"},
+}
+PART_ROLE = {
+    "ground_floor": "一樓（街道介面）",
+    "middle":       "中間層（主要居住面）",
+    "ring":         "環狀層（立面節奏）",
+    "highfloor":    "高樓層（天際線輪廓）",
+    "rooftop":      "屋頂（頂部收尾）",
+}
+
+def generate_interpretation(record, params, facade, meta):
+    lines = []
+    tier_map = {"low":"低正向（廣告語言模糊、承諾有限）",
+                "mid":"中正向（一般市場描述）",
+                "high":"高正向（強力承諾居住品質與價值）"}
+    tier_label = tier_map.get(meta.get("sentiment_tier",""), "")
+    cluster = meta.get("primary_cluster","")
+    conf    = meta.get("cluster_confidence", 0)
+    prop_type = record.get("property_type") or "物件"
+    price     = record.get("price_wan") or "？"
+    area      = record.get("area_ping") or "？"
+    loc       = record.get("location_desc") or record.get("address") or "台北"
+    reason    = meta.get("cluster_reason","")
+    lines.append(
+        f"這棟建築由一張{prop_type}傳單生成，售價 {price} 萬，坪數 {area} 坪，位於{loc}。\n"
+        f"傳單廣告情感屬於{tier_label}，語意導向判定為「{cluster}」（信心 {conf}%）。"
+        + (f"「{reason}」" if reason else "")
+    )
+    part_lines = []
+    for part_key, part_label in PART_ROLE.items():
+        if part_key not in facade: continue
+        t_num = facade[part_key].get("true")
+        f_num = facade[part_key].get("false")
+        t = PART_DESC.get(t_num, {"label":f"#{t_num}","feel":""})
+        f = PART_DESC.get(f_num, {"label":f"#{f_num}","feel":""})
+        if t_num == f_num:
+            part_lines.append(f"・{part_label}：【{t['label']}】— {t['feel']}")
+        else:
+            part_lines.append(
+                f"・{part_label}：【{t['label']}】與【{f['label']}】之間的交替，"
+                f"呈現{t['feel']}，對照{f['feel']}")
+    lines.append("建築各部位的外觀邏輯：\n" + "\n".join(part_lines))
+    h = params.get("height", 4)
+    w = params.get("width", 2)
+    hd = "低矮" if h<=4 else ("中等" if h<=6 else "高聳")
+    wd = "窄小" if w<=2 else ("中型" if w<=4 else "寬闊")
+    lines.append(
+        f"整體而言，這是一棟{hd}的{wd}建築，以台北真實街道的立面碎片拼湊而成。"
+        "它既不是廣告傳單所承諾的理想居所，也不是城市規劃圖上的標準單元——"
+        "而是將房產買賣的語言轉譯成一種關於台北城市紋理的建築想像。"
+    )
+    return "\n\n".join(lines)
+
+
 # ── 立面模型池 ────────────────────────────────────────────────
 SENTIMENT_POOLS = {
     "low":  {"middle":[1,2,3,12,14], "ring":[1,2,3,12,14], "highfloor":[1,2,3,12,14]},
@@ -143,6 +214,18 @@ def build_response(raw, seed: int):
         },
         # 給前端用：顯示這個傳單所有可能的組合數
         "possible_combinations": _count_combinations(score, cluster),
+        "interpretation": generate_interpretation(
+            {k: raw.get(k) for k in ["title","address","phone","area_ping","land_ping",
+                "floor_count","price_wan","layout","has_elevator","has_parking","property_type",
+                "agent","surrounding_desc","ad_slogan","material_desc","condition_desc","color",
+                "notes","location_desc"]},
+            apply_params(raw),
+            build_facade(score, cluster, seed),
+            {"sentiment_tier": tier,
+             "primary_cluster": cluster,
+             "cluster_confidence": raw.get("cluster_confidence",0),
+             "cluster_reason": raw.get("cluster_reason",""),}
+        ),
     }
 
 def _count_combinations(score, cluster):

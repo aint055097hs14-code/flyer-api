@@ -120,6 +120,7 @@ h1{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px}
       <button class="tab" onclick="tab('nlp',this)">NLP 分析</button>
       <button class="tab" onclick="tab('record',this)">傳單記錄</button>
       <button class="tab" onclick="tab('interp',this)">建築詮釋</button>
+      <button class="tab" onclick="tab('machine',this)">機器評分</button>
       <button class="tab" onclick="tab('json',this)">JSON</button>
     </div>
     <div id="p-params" class="panel active">
@@ -138,6 +139,12 @@ h1{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px}
       <div class="card">
         <div class="card-title">建築詮釋</div>
         <div id="interp-text" style="font-size:13px;color:#94a3b8;line-height:1.8;white-space:pre-wrap"></div>
+      </div>
+    </div>
+    <div id="p-machine" class="panel">
+      <div class="card">
+        <div class="card-title">機器視野評分 BAI · END · SSI · AEI</div>
+        <div id="machine-section"></div>
       </div>
     </div>
     <div id="p-json" class="panel">
@@ -269,6 +276,45 @@ function render(d){
   }
 
   document.getElementById('jbox').textContent=JSON.stringify(d,null,2);
+  if(d.machine_scores){
+    const ms=d.machine_scores;
+    const bars=[
+      {code:'BAI',full:'Boundary Anxiety Index',label:'邊界焦慮指數',val:ms.bai,color:'#2aff8f',note:'→ Eisenman 解構／切割'},
+      {code:'END',full:'Entropy Node Density',label:'熵節點密度',val:ms.end,color:'#ff8040',note:'→ Eisenman 錯位／重疊'},
+      {code:'SSI',full:'Structural Self-evidence Index',label:'結構自明性指數',val:ms.ssi,color:'#44aaff',note:'→ Eisenman 摺疊／造型語法'},
+      {code:'AEI',full:'Axial Escape Index',label:'軸向逸脫指數',val:ms.aei,color:'#ffdd44',note:'→ Eisenman 旋轉／系統偏移'},
+    ];
+    const maxVal=Math.max(...bars.map(b=>b.val),1);
+    const ei=ms.eisenman;
+    document.getElementById('machine-section').innerHTML=`
+      <div style="margin-bottom:12px">${bars.map(b=>`
+        <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+          <div style="width:36px;font-size:11px;font-weight:500;color:${b.color};font-family:monospace">${b.code}</div>
+          <div style="flex:1;height:6px;background:var(--color-background-tertiary);border-radius:3px;overflow:hidden">
+            <div style="width:${Math.round(b.val/maxVal*100)}%;height:100%;background:${b.color};border-radius:3px"></div>
+          </div>
+          <div style="width:40px;font-size:12px;font-weight:500;color:var(--color-text-primary);text-align:right">${b.val}</div>
+          <div style="font-size:10px;color:var(--color-text-tertiary);width:160px">${b.note}</div>
+        </div>`).join('')}
+      </div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px;font-size:12px;margin-bottom:10px">
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Eisenman 第二棟建築操作強度</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div><span style="color:var(--color-text-tertiary)">解構強度</span> <strong>${ei.decomposition}</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">疊加層數</span> <strong>${ei.superimposition}</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">自明性</span> <strong>${ei.self_evidence}</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">軸向偏移</span> <strong>${ei.axial_deviation}</strong></div>
+        </div>
+      </div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px;font-size:12px">
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">ABM 城市代謝狀態</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div><span style="color:var(--color-text-tertiary)">超載風險 END+AEI</span> <strong style="color:${ms.overload_risk>=100?'#f87171':'#4ade80'}">${ms.overload_risk}</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">有效 SSI</span> <strong>${ms.ssi_effective}</strong></div>
+          <div><span style="color:var(--color-text-tertiary)">保存區</span> <strong style="color:${ms.preserved?'#60a5fa':'var(--color-text-tertiary)'}">${ms.preserved?'是 — 免疫超載':'否'}</strong></div>
+        </div>
+      </div>`;
+  }
   if(d.interpretation) document.getElementById('interp-text').textContent=d.interpretation;
 }
 

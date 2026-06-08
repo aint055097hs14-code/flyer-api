@@ -38,6 +38,73 @@ PART_ROLE = {
     "rooftop":      "屋頂（頂部收尾）",
 }
 
+# ── 機器視野四維評分 ──────────────────────────────────────────
+# BAI Boundary Anxiety Index      邊界焦慮指數   → Eisenman 解構／切割
+# END Entropy Node Density        熵節點密度     → Eisenman 錯位／重疊
+# SSI Structural Self-evidence    結構自明性指數 → Eisenman 摺疊／造型語法
+# AEI Axial Escape Index          軸向逸脫指數   → Eisenman 旋轉／系統偏移
+PART_MACHINE = {
+    0:  {"bai":7, "end":5, "ssi":5, "aei":3},
+    1:  {"bai":9, "end":9, "ssi":3, "aei":9},
+    2:  {"bai":2, "end":2, "ssi":6, "aei":1},
+    3:  {"bai":3, "end":4, "ssi":4, "aei":3},
+    4:  {"bai":7, "end":7, "ssi":5, "aei":4},
+    5:  {"bai":5, "end":3, "ssi":7, "aei":2},
+    6:  {"bai":6, "end":6, "ssi":5, "aei":4},
+    7:  {"bai":8, "end":4, "ssi":9, "aei":2},
+    8:  {"bai":8, "end":2, "ssi":9, "aei":2},
+    9:  {"bai":4, "end":6, "ssi":1, "aei":8},
+    10: {"bai":5, "end":3, "ssi":6, "aei":2},
+    11: {"bai":7, "end":9, "ssi":1, "aei":9},
+    12: {"bai":6, "end":7, "ssi":2, "aei":7},
+    13: {"bai":9, "end":3, "ssi":9, "aei":3},
+    14: {"bai":6, "end":5, "ssi":7, "aei":4},
+    15: {"bai":7, "end":6, "ssi":7, "aei":5},
+}
+
+def calc_machine_scores(facade: dict, params: dict) -> dict:
+    h  = params.get("height", 4)
+    rf = params.get("rings_frequency_h", 4)
+    uf = params.get("upper_floors", 0)
+    counts = {
+        "ground_floor": 1,
+        "middle":       h,
+        "ring":         max(1, round(h / rf)),
+        "highfloor":    uf,
+        "rooftop":      1,
+    }
+    totals = {"bai":0,"end":0,"ssi":0,"aei":0}
+    breakdown = {}
+    for part, count in counts.items():
+        if count == 0: continue
+        t_num = facade.get(part, {}).get("true", 0)
+        f_num = facade.get(part, {}).get("false", 0)
+        t_score = PART_MACHINE.get(t_num, {"bai":5,"end":5,"ssi":5,"aei":5})
+        f_score = PART_MACHINE.get(f_num, {"bai":5,"end":5,"ssi":5,"aei":5})
+        for k in ["bai","end","ssi","aei"]:
+            totals[k] += round((t_score[k]+f_score[k])/2 * count)
+        breakdown[part] = {"count":count,"unit_t":t_num,"unit_f":f_num}
+    bai_penalty   = max(0, totals["bai"] - 80)
+    ssi_effective = max(0, totals["ssi"] - bai_penalty)
+    overload_risk = totals["end"] + totals["aei"]
+    preserved     = ssi_effective >= 70
+    return {
+        "bai": totals["bai"],
+        "end": totals["end"],
+        "ssi": totals["ssi"],
+        "aei": totals["aei"],
+        "ssi_effective": ssi_effective,
+        "overload_risk": overload_risk,
+        "preserved":     preserved,
+        "breakdown":     breakdown,
+        "eisenman": {
+            "decomposition":   round(totals["bai"]/10, 1),
+            "superimposition": max(1, round(totals["end"]/10*4)),
+            "self_evidence":   round(ssi_effective/10, 1),
+            "axial_deviation": round(totals["aei"]/10, 1),
+        }
+    }
+
 def generate_interpretation(record, params, facade, meta):
     lines = []
     tier_map = {"low":"低正向（廣告語言模糊、承諾有限）",
@@ -214,6 +281,10 @@ def build_response(raw, seed: int):
         },
         # 給前端用：顯示這個傳單所有可能的組合數
         "possible_combinations": _count_combinations(score, cluster),
+        "machine_scores": calc_machine_scores(
+            build_facade(score, cluster, seed),
+            apply_params(raw)
+        ),
         "interpretation": generate_interpretation(
             {k: raw.get(k) for k in ["title","address","phone","area_ping","land_ping",
                 "floor_count","price_wan","layout","has_elevator","has_parking","property_type",

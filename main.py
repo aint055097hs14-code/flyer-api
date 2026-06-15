@@ -355,7 +355,7 @@ async def reseed(payload: dict):
     s = seed if seed is not None else random.randint(0, 999999)
     return build_response(raw, s)
 
-@app.get("/parts/manifest")
+@app.get("/parts-manifest")
 def parts_manifest():
     """
     回傳所有立面零件的清單與機器評分，供 Unity/Three.js 一次性下載清單。

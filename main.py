@@ -3,10 +3,16 @@ import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from typing import Optional
 
 app = FastAPI(title="售屋傳單解析 API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# 立面零件靜態檔案路由
+# /parts/part_00.glb ~ /parts/part_15.glb
+if os.path.isdir("parts"):
+    app.mount("/parts", StaticFiles(directory="parts"), name="parts")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -348,3 +354,27 @@ async def reseed(payload: dict):
     seed = payload.get("seed")
     s = seed if seed is not None else random.randint(0, 999999)
     return build_response(raw, s)
+
+@app.get("/parts/manifest")
+def parts_manifest():
+    """
+    回傳所有立面零件的清單與機器評分，供 Unity/Three.js 一次性下載清單。
+    每個零件的 url 指向 /parts/part_XX.glb
+    """
+    parts = []
+    for i in range(16):
+        info = PART_MACHINE.get(i, {})
+        desc = PART_DESC.get(i, {})
+        parts.append({
+            "id": i,
+            "filename": f"part_{i:02d}.glb",
+            "url": f"/parts/part_{i:02d}.glb",
+            "label": desc.get("label", f"#{i}"),
+            "feel": desc.get("feel", ""),
+            "bai": info.get("bai"),
+            "end": info.get("end"),
+            "ssi": info.get("ssi"),
+            "aei": info.get("aei"),
+        })
+    return {"parts": parts, "part_role": PART_ROLE}
+

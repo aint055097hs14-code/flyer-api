@@ -211,8 +211,9 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 // ────────────────────────────────────────────────────────────
 // 常數設定
 // ────────────────────────────────────────────────────────────
-const FLOOR_HEIGHT = 3;   // 每層樓的高度（公尺）
-const UNIT_SIZE    = 4;   // 每個零件單元的寬度（公尺），width/depth 用這個倍數排列
+// 預設值，會在組裝時依照實際零件 bbox 動態覆寫
+let FLOOR_HEIGHT = 3;   // 每層樓的高度（公尺）
+let UNIT_SIZE    = 4;   // 每個零件單元的寬度（公尺）
 
 // 零件角色名稱（對應 facade_selection 的 key）
 const PART_ROLE_LABEL = {
@@ -386,6 +387,23 @@ async function assembleBuilding(data) {
     buildingGroup.remove(buildingGroup.children[0]);
   }
 
+  setStatus(`正在量測零件尺寸...`, 'info');
+
+  // ── 第一步：用一個參考零件量測真實尺寸，決定 UNIT_SIZE / FLOOR_HEIGHT ──
+  // 用一樓的 true 零件作為參考
+  const refPartId = facade.ground_floor?.true ?? 7;
+  try {
+    const refScene = await loadPart(partUrl(refPartId));
+    const box = new THREE.Box3().setFromObject(refScene);
+    const size = box.getSize(new THREE.Vector3());
+    console.log('reference part bbox:', size);
+    // 假設：模型的 X = 立面寬度，Y = 樓層高度，Z = 牆面厚度（面向方向）
+    if (isFinite(size.x) && size.x > 0) UNIT_SIZE = size.x;
+    if (isFinite(size.y) && size.y > 0) FLOOR_HEIGHT = size.y;
+  } catch (e) {
+    console.warn('reference part load failed, using defaults', e);
+  }
+
   setStatus(`正在組裝 ${floorPlan.length} 層樓...`, 'info');
 
   let loadedCount = 0;
@@ -399,11 +417,12 @@ async function assembleBuilding(data) {
     const y = floor.index * FLOOR_HEIGHT;
 
     // 四面牆：north(+Z), south(-Z), east(+X), west(-X)
+    // rotY 讓零件的 Z+ 面（正面）朝外
     const walls = [
-      { axis: 'z', sign:  1, units: width, rotY: 0 },          // north
-      { axis: 'z', sign: -1, units: width, rotY: Math.PI },    // south
-      { axis: 'x', sign:  1, units: depth, rotY: -Math.PI/2 }, // east
-      { axis: 'x', sign: -1, units: depth, rotY:  Math.PI/2 }, // west
+      { axis: 'z', sign:  1, units: width, rotY: 0 },          // north, 正面朝 +Z
+      { axis: 'z', sign: -1, units: width, rotY: Math.PI },    // south, 正面朝 -Z
+      { axis: 'x', sign:  1, units: depth, rotY: Math.PI/2 },  // east,  正面朝 +X
+      { axis: 'x', sign: -1, units: depth, rotY: -Math.PI/2 }, // west,  正面朝 -X
     ];
 
     for (const wall of walls) {
@@ -415,20 +434,19 @@ async function assembleBuilding(data) {
 
         const url = partUrl(partId);
 
-        // 計算位置
-        const offset = (u - (wall.units - 1) / 2) * UNIT_SIZE;
+        // 計算位置：沿著牆面方向均勻排列，每個零件寬度 = UNIT_SIZE
+        const offset = (u - (wall.units - 1) / 2 + 0.5) * UNIT_SIZE;
+        const wallOutset = (wall.axis === 'z' ? depth : width) * UNIT_SIZE / 2;
         let pos;
         if (wall.axis === 'z') {
-          pos = new THREE.Vector3(offset, y, wall.sign * (depth * UNIT_SIZE / 2));
+          pos = new THREE.Vector3(offset, y, wall.sign * wallOutset);
         } else {
-          pos = new THREE.Vector3(wall.sign * (width * UNIT_SIZE / 2), y, offset);
+          pos = new THREE.Vector3(wall.sign * wallOutset, y, offset);
         }
 
         const task = loadPart(url).then(scene3d => {
-          console.log(`[OK] loaded ${url}`, scene3d);
           const inst = scene3d.clone(true);
-          // 正規化縮放：嘗試把零件縮放到 UNIT_SIZE x FLOOR_HEIGHT 大小
-          normalizeScale(inst, UNIT_SIZE, FLOOR_HEIGHT);
+          alignPart(inst);
           inst.position.copy(pos);
           inst.rotation.y = wall.rotY;
           inst.userData = { partId, role, floorIndex: floor.index };
@@ -457,36 +475,25 @@ async function assembleBuilding(data) {
   }
 
   await Promise.allSettled(totalTasks);
-  setStatus(`✓ 組裝完成 — ${floorPlan.length} 層樓，${totalTasks.length} 個零件實例（含色塊佔位）`, 'ok');
+  setStatus(`✓ 組裝完成 — ${floorPlan.length} 層樓，${totalTasks.length} 個零件實例 · UNIT_SIZE=${UNIT_SIZE.toFixed(2)}m FLOOR_HEIGHT=${FLOOR_HEIGHT.toFixed(2)}m`, 'ok');
 
   // 自動置中相機
   const totalHeight = floorPlan.length * FLOOR_HEIGHT;
   controls.target.set(0, totalHeight / 2, 0);
-  camera.position.set(width * UNIT_SIZE * 1.2, totalHeight * 1.1, depth * UNIT_SIZE * 1.8);
+  const maxDim = Math.max(width * UNIT_SIZE, depth * UNIT_SIZE, totalHeight);
+  camera.position.set(maxDim * 1.0, totalHeight * 0.8, maxDim * 1.4);
 }
 
-// 嘗試把載入的模型縮放到目標尺寸（粗略正規化）
-function normalizeScale(obj, targetWidth, targetHeight) {
+// 將零件的底部中心對齊到原點 (0,0,0)，不縮放（保留原始尺寸）
+function alignPart(obj) {
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
-  console.log('  bbox size:', size);
-  if (!isFinite(size.x) || !isFinite(size.y) || size.x === 0 || size.y === 0) {
-    console.warn('  invalid bbox, skipping normalize');
-    return;
-  }
-  const scaleX = targetWidth / size.x;
-  const scaleY = targetHeight / size.y;
-  const scale = Math.min(scaleX, scaleY) || 1;
-  if (!isFinite(scale) || scale <= 0) {
-    console.warn('  invalid scale', scale);
-    return;
-  }
-  obj.scale.setScalar(scale);
-  // 重新置中底部到原點
-  const box2 = new THREE.Box3().setFromObject(obj);
-  if (isFinite(box2.min.y)) {
-    obj.position.y -= box2.min.y;
-  }
+  const center = box.getCenter(new THREE.Vector3());
+  if (!isFinite(box.min.y) || !isFinite(center.x) || !isFinite(center.z)) return;
+  // X/Z 置中，Y 底部對齊到 0
+  obj.position.x -= center.x;
+  obj.position.z -= center.z;
+  obj.position.y -= box.min.y;
 }
 
 function roleColor(role) {

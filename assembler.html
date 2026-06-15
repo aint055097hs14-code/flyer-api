@@ -206,6 +206,7 @@ button.secondary:hover { background: #1c232b; }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 // ────────────────────────────────────────────────────────────
 // 常數設定
@@ -286,6 +287,7 @@ document.getElementById('loading-overlay').classList.add('hidden');
 // GLTF Loader + 快取
 // ────────────────────────────────────────────────────────────
 const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
 const gltfCache = new Map(); // url -> Promise<gltf scene>
 
 function loadPart(url) {

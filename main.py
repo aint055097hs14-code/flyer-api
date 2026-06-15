@@ -1,10 +1,15 @@
-import base64, json, random, re, os
+import base64, json, random, re, os, mimetypes
 import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
+
+# 註冊 .glb / .gltf 的正確 MIME type
+# (Railway 的 Linux 環境預設 mimetypes 資料庫不認得這兩種)
+mimetypes.add_type("model/gltf-binary", ".glb")
+mimetypes.add_type("model/gltf+json", ".gltf")
 
 app = FastAPI(title="售屋傳單解析 API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

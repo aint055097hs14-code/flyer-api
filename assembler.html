@@ -423,6 +423,7 @@ async function assembleBuilding(data) {
         }
 
         const task = loadPart(url).then(scene3d => {
+          console.log(`[OK] loaded ${url}`, scene3d);
           const inst = scene3d.clone(true);
           // 正規化縮放：嘗試把零件縮放到 UNIT_SIZE x FLOOR_HEIGHT 大小
           normalizeScale(inst, UNIT_SIZE, FLOOR_HEIGHT);
@@ -432,6 +433,7 @@ async function assembleBuilding(data) {
           buildingGroup.add(inst);
           loadedCount++;
         }).catch(err => {
+          console.error(`[FAIL] ${url}`, err);
           // 零件載入失敗 → 用色塊佔位
           const geo = new THREE.BoxGeometry(UNIT_SIZE * 0.95, FLOOR_HEIGHT * 0.95, 0.3);
           const mat = new THREE.MeshStandardMaterial({
@@ -465,14 +467,24 @@ async function assembleBuilding(data) {
 function normalizeScale(obj, targetWidth, targetHeight) {
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
-  if (size.x === 0 || size.y === 0) return;
+  console.log('  bbox size:', size);
+  if (!isFinite(size.x) || !isFinite(size.y) || size.x === 0 || size.y === 0) {
+    console.warn('  invalid bbox, skipping normalize');
+    return;
+  }
   const scaleX = targetWidth / size.x;
   const scaleY = targetHeight / size.y;
   const scale = Math.min(scaleX, scaleY) || 1;
+  if (!isFinite(scale) || scale <= 0) {
+    console.warn('  invalid scale', scale);
+    return;
+  }
   obj.scale.setScalar(scale);
   // 重新置中底部到原點
   const box2 = new THREE.Box3().setFromObject(obj);
-  obj.position.y -= box2.min.y;
+  if (isFinite(box2.min.y)) {
+    obj.position.y -= box2.min.y;
+  }
 }
 
 function roleColor(role) {

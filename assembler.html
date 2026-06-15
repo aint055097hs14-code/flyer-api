@@ -180,6 +180,18 @@ button.secondary:hover { background: #1c232b; }
   </div>
   <button class="secondary" onclick="loadManifest()">載入零件清單 (manifest)</button>
 
+  <div class="section-title">排列微調</div>
+  <div class="field">
+    <label>間距係數 SPACING_RATIO：<span id="spacing-val">1.00</span></label>
+    <input type="range" id="spacing-ratio" min="0.3" max="1.5" step="0.05" value="1.0"
+      oninput="document.getElementById('spacing-val').textContent = parseFloat(this.value).toFixed(2)" />
+  </div>
+  <div class="field">
+    <label>額外旋轉角度（度）：<span id="rot-val">-90</span></label>
+    <input type="range" id="extra-rotation" min="-180" max="180" step="15" value="-90"
+      oninput="document.getElementById('rot-val').textContent = this.value" />
+  </div>
+
   <div id="status">尚未載入任何資料</div>
 
   <div class="section-title">樓層分配預覽</div>
@@ -214,6 +226,14 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 // 預設值，會在組裝時依照實際零件 bbox 動態覆寫
 let FLOOR_HEIGHT = 3;   // 每層樓的高度（公尺）
 let UNIT_SIZE    = 4;   // 每個零件單元的寬度（公尺）
+
+function getSpacingRatio() {
+  return parseFloat(document.getElementById('spacing-ratio')?.value || '1.0');
+}
+function getExtraRotation() {
+  const deg = parseFloat(document.getElementById('extra-rotation')?.value || '-90');
+  return deg * Math.PI / 180;
+}
 
 // 零件角色名稱（對應 facade_selection 的 key）
 const PART_ROLE_LABEL = {
@@ -392,13 +412,18 @@ async function assembleBuilding(data) {
   // ── 第一步：用一個參考零件量測真實尺寸，決定 UNIT_SIZE / FLOOR_HEIGHT ──
   // 用一樓的 true 零件作為參考
   const refPartId = facade.ground_floor?.true ?? 7;
+  const extraRot = getExtraRotation();
+  const spacingRatio = getSpacingRatio();
   try {
     const refScene = await loadPart(partUrl(refPartId));
-    const box = new THREE.Box3().setFromObject(refScene);
+    const refInst = refScene.clone(true);
+    refInst.rotation.y = extraRot; // 套用同樣的修正旋轉再量測
+    refInst.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(refInst);
     const size = box.getSize(new THREE.Vector3());
-    console.log('reference part bbox:', size);
-    // 假設：模型的 X = 立面寬度，Y = 樓層高度，Z = 牆面厚度（面向方向）
-    if (isFinite(size.x) && size.x > 0) UNIT_SIZE = size.x;
+    console.log('reference part bbox (after rotation):', size);
+    // 旋轉後：X = 牆面排列方向寬度, Y = 樓層高度
+    if (isFinite(size.x) && size.x > 0) UNIT_SIZE = size.x * spacingRatio;
     if (isFinite(size.y) && size.y > 0) FLOOR_HEIGHT = size.y;
   } catch (e) {
     console.warn('reference part load failed, using defaults', e);
@@ -416,13 +441,12 @@ async function assembleBuilding(data) {
 
     const y = floor.index * FLOOR_HEIGHT;
 
-    // 四面牆：north(+Z), south(-Z), east(+X), west(-X)
-    // rotY 讓零件的 Z+ 面（正面）朝外
+    // rotY 讓零件的正面朝外（套用使用者調整的額外旋轉角度）
     const walls = [
-      { axis: 'z', sign:  1, units: width, rotY: 0 },          // north, 正面朝 +Z
-      { axis: 'z', sign: -1, units: width, rotY: Math.PI },    // south, 正面朝 -Z
-      { axis: 'x', sign:  1, units: depth, rotY: Math.PI/2 },  // east,  正面朝 +X
-      { axis: 'x', sign: -1, units: depth, rotY: -Math.PI/2 }, // west,  正面朝 -X
+      { axis: 'z', sign:  1, units: width, rotY: 0          + extraRot }, // north
+      { axis: 'z', sign: -1, units: width, rotY: Math.PI    + extraRot }, // south
+      { axis: 'x', sign:  1, units: depth, rotY: Math.PI/2  + extraRot }, // east
+      { axis: 'x', sign: -1, units: depth, rotY: -Math.PI/2 + extraRot }, // west
     ];
 
     for (const wall of walls) {
@@ -543,11 +567,24 @@ window.loadFromJSON = async function() {
       setStatus('✗ JSON 缺少 params 或 facade_selection 欄位', 'err');
       return;
     }
+    lastData = data;
     await assembleBuilding(data);
   } catch (e) {
     setStatus('✗ JSON 解析錯誤：' + e.message, 'err');
   }
 };
+
+let lastData = null;
+
+// 滑桿調整後即時重新組裝
+['spacing-ratio', 'extra-rotation'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('change', () => {
+      if (lastData) assembleBuilding(lastData);
+    });
+  }
+});
 
 window.loadManifest = loadManifest;
 

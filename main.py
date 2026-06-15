@@ -322,6 +322,9 @@ def _count_combinations(score, cluster):
 @app.get("/")
 async def index(): return HTMLResponse(open("index.html").read())
 
+@app.get("/assembler")
+async def assembler(): return HTMLResponse(open("assembler.html").read())
+
 @app.get("/health")
 def health(): return {"status":"ok"}
 

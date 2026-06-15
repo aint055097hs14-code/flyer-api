@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>建築拼裝引擎 — Runtime Assembler</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', monospace;
+  background: #0a0c0f;
+  color: #c8d4dc;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── 左側控制面板 ── */
+#panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: #0d1014;
+  border-right: 1px solid #1c232b;
+  padding: 20px;
+  overflow-y: auto;
+}
+#panel h1 {
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: #5fb4ff;
+  margin-bottom: 4px;
+}
+#panel .sub {
+  font-size: 10px;
+  color: #3a4652;
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+.field {
+  margin-bottom: 12px;
+}
+.field label {
+  display: block;
+  font-size: 10px;
+  color: #5a6877;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.field input, .field textarea {
+  width: 100%;
+  background: #161b22;
+  border: 1px solid #232b35;
+  color: #c8d4dc;
+  padding: 8px 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.field textarea {
+  height: 140px;
+  resize: vertical;
+}
+.field input:focus, .field textarea:focus {
+  outline: none;
+  border-color: #5fb4ff;
+}
+.row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+button {
+  width: 100%;
+  background: #1a4a7a;
+  border: 1px solid #2a6ab5;
+  color: #d8ecff;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-top: 6px;
+  transition: background .15s;
+}
+button:hover { background: #235a92; }
+button.secondary {
+  background: #161b22;
+  border-color: #232b35;
+  color: #8a98a8;
+}
+button.secondary:hover { background: #1c232b; }
+
+#status {
+  margin-top: 14px;
+  font-size: 11px;
+  color: #4a5868;
+  line-height: 1.6;
+  min-height: 40px;
+}
+#status .ok { color: #4ade80; }
+#status .err { color: #f87171; }
+#status .info { color: #5fb4ff; }
+
+.section-title {
+  font-size: 10px;
+  color: #3a4652;
+  letter-spacing: 2px;
+  margin: 18px 0 8px;
+  border-bottom: 1px solid #1c232b;
+  padding-bottom: 6px;
+}
+
+/* ── 樓層分配預覽 ── */
+#floor-map {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #5a6877;
+}
+#floor-map .floor-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid #161b22;
+}
+#floor-map .floor-row span:first-child { color: #3a4652; }
+#floor-map .role-ground   { color: #ffb454; }
+#floor-map .role-middle   { color: #5fb4ff; }
+#floor-map .role-ring     { color: #b87fff; }
+#floor-map .role-highfloor{ color: #ff7fb4; }
+#floor-map .role-rooftop  { color: #7fffb4; }
+
+/* ── 3D 視窗 ── */
+#viewport {
+  flex: 1;
+  position: relative;
+}
+#viewport canvas { display: block; }
+#viewport-label {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  font-size: 10px;
+  color: #3a4652;
+  letter-spacing: 2px;
+}
+#loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10,12,15,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #5fb4ff;
+  letter-spacing: 2px;
+  z-index: 10;
+}
+#loading-overlay.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>RUNTIME ASSEMBLER</h1>
+  <div class="sub">傳單數據 → 建築拼裝 · v0.1</div>
+
+  <div class="section-title">傳單 JSON</div>
+  <div class="field">
+    <label>貼上 /parse 回傳的完整 JSON</label>
+    <textarea id="json-input" placeholder='貼上從 /parse 或 /reseed 回傳的 JSON...'></textarea>
+  </div>
+  <button onclick="loadFromJSON()">▶ 解析並組裝</button>
+  <button class="secondary" onclick="loadSample()">載入範例數據（龍山寺）</button>
+
+  <div class="section-title">API 連線</div>
+  <div class="field">
+    <label>API 網址（同源使用相對路徑）</label>
+    <input id="api-url" value="" />
+  </div>
+  <button class="secondary" onclick="loadManifest()">載入零件清單 (manifest)</button>
+
+  <div id="status">尚未載入任何資料</div>
+
+  <div class="section-title">樓層分配預覽</div>
+  <div id="floor-map">— 等待組裝 —</div>
+</div>
+
+<div id="viewport">
+  <div id="viewport-label">VIEWPORT · 拖曳旋轉 · 滾輪縮放</div>
+  <div id="loading-overlay">
+    <div>正在載入 Three.js 引擎...</div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ────────────────────────────────────────────────────────────
+// 常數設定
+// ────────────────────────────────────────────────────────────
+const FLOOR_HEIGHT = 3;   // 每層樓的高度（公尺）
+const UNIT_SIZE    = 4;   // 每個零件單元的寬度（公尺），width/depth 用這個倍數排列
+
+// 零件角色名稱（對應 facade_selection 的 key）
+const PART_ROLE_LABEL = {
+  ground_floor: '一樓',
+  middle:       '中間層',
+  ring:         '環狀層',
+  highfloor:    '高樓層',
+  rooftop:      '屋頂',
+};
+
+// ────────────────────────────────────────────────────────────
+// Three.js 場景初始化
+// ────────────────────────────────────────────────────────────
+const viewport = document.getElementById('viewport');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0c0f);
+scene.fog = new THREE.Fog(0x0a0c0f, 60, 160);
+
+const camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 0.1, 1000);
+camera.position.set(30, 24, 30);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+viewport.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 8, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+// 燈光
+const hemi = new THREE.HemisphereLight(0x8899aa, 0x222233, 1.0);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2e0, 1.4);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun);
+
+// 地面網格
+const grid = new THREE.GridHelper(80, 40, 0x1c232b, 0x141a20);
+scene.add(grid);
+
+// 建築群組
+let buildingGroup = new THREE.Group();
+scene.add(buildingGroup);
+
+// 軸線輔助（debug用，可移除）
+const axes = new THREE.AxesHelper(4);
+scene.add(axes);
+
+// resize
+window.addEventListener('resize', () => {
+  camera.aspect = viewport.clientWidth / viewport.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+});
+
+// render loop
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+document.getElementById('loading-overlay').classList.add('hidden');
+
+// ────────────────────────────────────────────────────────────
+// GLTF Loader + 快取
+// ────────────────────────────────────────────────────────────
+const loader = new GLTFLoader();
+const gltfCache = new Map(); // url -> Promise<gltf scene>
+
+function loadPart(url) {
+  if (gltfCache.has(url)) return gltfCache.get(url);
+  const p = new Promise((resolve, reject) => {
+    loader.load(url, (gltf) => resolve(gltf.scene), undefined, (err) => reject(err));
+  });
+  gltfCache.set(url, p);
+  return p;
+}
+
+// ────────────────────────────────────────────────────────────
+// Manifest（零件清單）
+// ────────────────────────────────────────────────────────────
+let manifest = null;
+
+async function loadManifest() {
+  const apiUrl = document.getElementById('api-url').value.trim();
+  setStatus('正在載入零件清單...', 'info');
+  try {
+    const res = await fetch(apiUrl + '/parts-manifest');
+    const data = await res.json();
+    manifest = data;
+    setStatus(`✓ 已載入 ${data.parts.length} 個零件清單`, 'ok');
+  } catch (e) {
+    setStatus('✗ 載入失敗：' + e.message + '（將使用本機零件路徑 fallback）', 'err');
+  }
+}
+
+function partUrl(partId) {
+  const apiUrl = document.getElementById('api-url').value.trim();
+  if (manifest) {
+    const p = manifest.parts.find(p => p.id === partId);
+    if (p) return apiUrl + p.url;
+  }
+  // fallback：直接猜路徑
+  return apiUrl + `/parts/part_${String(partId).padStart(2,'0')}.glb`;
+}
+
+// ────────────────────────────────────────────────────────────
+// 核心拼裝邏輯
+// ────────────────────────────────────────────────────────────
+/*
+  拓樸假設（最小可行版本）：
+  - 建築是矩形量體，四面牆（north/south/east/west）
+  - 每面牆寬度由 params.width（X方向）或 params.depth（Z方向）決定，
+    單位數 = width 或 depth（每個單位 = UNIT_SIZE 公尺）
+  - 垂直方向分層：
+      第0層           = ground_floor
+      第1 ~ height層  = middle（其中每隔 rings_frequency 層替換成 ring）
+      之後 upper_floors 層 = highfloor
+      最頂 1層        = rooftop
+  - true/false 槎位：在同一層的不同零件位置交替使用 true/false，
+    corner 用在牆角位置
+*/
+
+function buildFloorPlan(params, facade) {
+  const height = params.height || 4;
+  const upperFloors = params.upper_floors || 0;
+  const ringsFreq = params.rings_frequency_h || params.rings_frequency || 4;
+
+  const floors = [];
+
+  // 第0層：一樓
+  floors.push({ index: 0, role: 'ground_floor' });
+
+  // 中間層 + 環狀層
+  for (let i = 1; i <= height; i++) {
+    const isRing = (ringsFreq > 0) && (i % ringsFreq === 0);
+    floors.push({ index: i, role: isRing ? 'ring' : 'middle' });
+  }
+
+  // 高樓層
+  for (let i = 0; i < upperFloors; i++) {
+    floors.push({ index: height + 1 + i, role: 'highfloor' });
+  }
+
+  // 屋頂
+  floors.push({ index: floors.length, role: 'rooftop' });
+
+  return floors;
+}
+
+async function assembleBuilding(data) {
+  const params = data.params;
+  const facade = data.facade_selection;
+
+  const width = params.width || 2;   // X方向單位數
+  const depth = params.depth || 2;   // Z方向單位數
+
+  const floorPlan = buildFloorPlan(params, facade);
+  renderFloorMap(floorPlan, facade);
+
+  // 清空舊建築
+  while (buildingGroup.children.length > 0) {
+    buildingGroup.remove(buildingGroup.children[0]);
+  }
+
+  setStatus(`正在組裝 ${floorPlan.length} 層樓...`, 'info');
+
+  let loadedCount = 0;
+  const totalTasks = [];
+
+  for (const floor of floorPlan) {
+    const role = floor.role;
+    const sel = facade[role];
+    if (!sel) continue;
+
+    const y = floor.index * FLOOR_HEIGHT;
+
+    // 四面牆：north(+Z), south(-Z), east(+X), west(-X)
+    const walls = [
+      { axis: 'z', sign:  1, units: width, rotY: 0 },          // north
+      { axis: 'z', sign: -1, units: width, rotY: Math.PI },    // south
+      { axis: 'x', sign:  1, units: depth, rotY: -Math.PI/2 }, // east
+      { axis: 'x', sign: -1, units: depth, rotY:  Math.PI/2 }, // west
+    ];
+
+    for (const wall of walls) {
+      for (let u = 0; u < wall.units; u++) {
+        const isCorner = (u === 0 || u === wall.units - 1);
+        const partId = isCorner && sel.corner !== undefined
+          ? sel.corner
+          : (u % 2 === 0 ? sel.true : sel.false);
+
+        const url = partUrl(partId);
+
+        // 計算位置
+        const offset = (u - (wall.units - 1) / 2) * UNIT_SIZE;
+        let pos;
+        if (wall.axis === 'z') {
+          pos = new THREE.Vector3(offset, y, wall.sign * (depth * UNIT_SIZE / 2));
+        } else {
+          pos = new THREE.Vector3(wall.sign * (width * UNIT_SIZE / 2), y, offset);
+        }
+
+        const task = loadPart(url).then(scene3d => {
+          const inst = scene3d.clone(true);
+          // 正規化縮放：嘗試把零件縮放到 UNIT_SIZE x FLOOR_HEIGHT 大小
+          normalizeScale(inst, UNIT_SIZE, FLOOR_HEIGHT);
+          inst.position.copy(pos);
+          inst.rotation.y = wall.rotY;
+          inst.userData = { partId, role, floorIndex: floor.index };
+          buildingGroup.add(inst);
+          loadedCount++;
+        }).catch(err => {
+          // 零件載入失敗 → 用色塊佔位
+          const geo = new THREE.BoxGeometry(UNIT_SIZE * 0.95, FLOOR_HEIGHT * 0.95, 0.3);
+          const mat = new THREE.MeshStandardMaterial({
+            color: roleColor(role),
+            wireframe: false,
+            opacity: 0.5,
+            transparent: true,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(pos);
+          mesh.rotation.y = wall.rotY;
+          mesh.userData = { partId, role, floorIndex: floor.index, fallback: true };
+          buildingGroup.add(mesh);
+        });
+
+        totalTasks.push(task);
+      }
+    }
+  }
+
+  await Promise.allSettled(totalTasks);
+  setStatus(`✓ 組裝完成 — ${floorPlan.length} 層樓，${totalTasks.length} 個零件實例（含色塊佔位）`, 'ok');
+
+  // 自動置中相機
+  const totalHeight = floorPlan.length * FLOOR_HEIGHT;
+  controls.target.set(0, totalHeight / 2, 0);
+  camera.position.set(width * UNIT_SIZE * 1.2, totalHeight * 1.1, depth * UNIT_SIZE * 1.8);
+}
+
+// 嘗試把載入的模型縮放到目標尺寸（粗略正規化）
+function normalizeScale(obj, targetWidth, targetHeight) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  if (size.x === 0 || size.y === 0) return;
+  const scaleX = targetWidth / size.x;
+  const scaleY = targetHeight / size.y;
+  const scale = Math.min(scaleX, scaleY) || 1;
+  obj.scale.setScalar(scale);
+  // 重新置中底部到原點
+  const box2 = new THREE.Box3().setFromObject(obj);
+  obj.position.y -= box2.min.y;
+}
+
+function roleColor(role) {
+  const colors = {
+    ground_floor: 0xffb454,
+    middle:       0x5fb4ff,
+    ring:         0xb87fff,
+    highfloor:    0xff7fb4,
+    rooftop:      0x7fffb4,
+  };
+  return colors[role] || 0x888888;
+}
+
+// ────────────────────────────────────────────────────────────
+// UI 輔助
+// ────────────────────────────────────────────────────────────
+function setStatus(msg, type = '') {
+  const el = document.getElementById('status');
+  el.innerHTML = `<span class="${type}">${msg}</span>`;
+}
+
+function renderFloorMap(floorPlan, facade) {
+  const el = document.getElementById('floor-map');
+  el.innerHTML = floorPlan.slice().reverse().map(f => {
+    const sel = facade[f.role] || {};
+    const label = PART_ROLE_LABEL[f.role] || f.role;
+    return `<div class="floor-row">
+      <span>F${f.index}</span>
+      <span class="role-${f.role}">${label}</span>
+      <span>T:${sel.true ?? '-'} F:${sel.false ?? '-'} C:${sel.corner ?? '-'}</span>
+    </div>`;
+  }).join('');
+}
+
+// ────────────────────────────────────────────────────────────
+// 入口函式（給按鈕呼叫）
+// ────────────────────────────────────────────────────────────
+window.loadFromJSON = async function() {
+  const text = document.getElementById('json-input').value.trim();
+  if (!text) {
+    setStatus('✗ 請貼上 JSON 資料', 'err');
+    return;
+  }
+  try {
+    const data = JSON.parse(text);
+    if (!data.params || !data.facade_selection) {
+      setStatus('✗ JSON 缺少 params 或 facade_selection 欄位', 'err');
+      return;
+    }
+    await assembleBuilding(data);
+  } catch (e) {
+    setStatus('✗ JSON 解析錯誤：' + e.message, 'err');
+  }
+};
+
+window.loadManifest = loadManifest;
+
+window.loadSample = function() {
+  const sample = {
+    "params": {
+      "width": 6, "depth": 6, "height": 9,
+      "upper_floors": 0,
+      "rings_frequency_h": 4, "rings_frequency_v": 4,
+      "gap_frequency": 2
+    },
+    "facade_selection": {
+      "ground_floor": { "true": 7,  "false": 15, "corner": 7  },
+      "middle":       { "true": 8,  "false": 9,  "corner": 8  },
+      "ring":         { "true": 0,  "false": 10, "corner": 0  },
+      "highfloor":    { "true": 8,  "false": 13, "corner": 13 },
+      "rooftop":      { "true": 14, "false": 14, "corner": 14 }
+    }
+  };
+  document.getElementById('json-input').value = JSON.stringify(sample, null, 2);
+  setStatus('已載入範例數據，按「解析並組裝」開始', 'info');
+};
+
+// 啟動時自動載入 manifest
+loadManifest();
+</script>
+</body>
+</html>
